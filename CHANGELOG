@@ -1,0 +1,146 @@
+2.4 5/8/2017
+- Change bad instruction to not be exploitable. The vast majority of times this exception occurs, it's because of deliberate attempts to halt the process, e.g. by calling __builtin_trap()
+- Update to support 10.12.4 and 10.13
+
+2.3.9 3/8/2017
+- Clear out old unnecessary functions from suspicious_functions.  Fix compiler warnings. Set an empty pthread_sigmask to prevent problems inheriting a signal mask.
+- Add __chk_fail_overflow to suspicious funcs so that FORTIFY_SOURCE crashes are considered exploitable.  While they aren't technically exploitable, they should be flagged   in case the code is used on systems with different compilers or in case the compiler somehow changes to not instrument the function properly.
+- Crashes in CFRelease/CFRetain with EXC_BAD_INSTRUCTION are not exploitable, it's from retaining or releasing null.
+- Null derefs under CFRelease/CFRetain should be non exploitable.
+- Improve handling of WTFCrash and WTFCrashWithSecurityImplication
+
+
+2.3.8 9/2/2015
+- Make it non exploitable if ABORTING_DUE_TO_OUT_OF_MEMORY was in the crashing thread's backtrace.
+
+
+2.3.6 10/20/2014
+- Update to work with OS X 10.10.
+- Drop support for OS X 10.7 and earlier.
+- In CrashLog.rb, move the initialization of @@system_version to later as an optimization
+- In CrashLog.rb, remove the 'skippable_functions' logic for improved signatures on OS X 10.9 and later.
+- Consider a crash to be a null deref if the access address is <= PAGE_SIZE * 8
+- By default, in bucket_logs.rb, only scan for crash logs with the .crash or .crashlog.txt extensions and add an -a option to scan all files.
+- Handle crash logs which contain a dyld error (e.g. symbol not found)
+- Added the CW_LOG_INFO environment variable option.
+- Update documentation to reflect that users should write their own automation and remove old unsupported scripts like automate.rb
+- Update CrashLog.rb to use otool instead of gdb for getting disassembly.
+- Add WTFCrash to the list of functions to ignore as the signature crash point.
+- Added WTFCrashWithSecurityImplication to the list of suspicious functions.
+- Added libclang_rt.asan_osx_dynamic.dylib to the list of system modules
+- Unify signatures for crashes like _platform_memmove$VARIANT$Ivybridge / _platform_memmove$VARIANT$Merom
+- Fix various warnings when running Ruby 2.0 on Mavericks and use fileutils instead of ftools
+
+
+2.3 9/18/2013
+- Update CrashWrangler to work on OS X 10.9
+- Don't set MALLOC_ALLOW_READS when CW_USE_GMAL is set.  The performance cost is not worth the benefit.
+- Don't mark EXC_BREAKPOINT crashes as exploitable even if the stack is suspicious. These were always false positives in our experience.
+
+2.2.8 6/15/2012
+- Update the Makefile to use xcrun to deal with changing Xcode locations.
+- Signature generation uses [Infinite recursion] as the first part of the signature if recursion was detected.
+- Don't mark accesses to 0x55555555 to be exploitable, since it usually indicates an uninitialized memory use when libgmalloc was used, which may or may not be exploitable.
+- The Makefile now uses cc and c++ instead of gcc and g++.
+- Remove support for PPC
+- Updated crash signature generation to know about crashes in __pthread_kill.
+- Replace any ':' characters in the disassembly with a space, so disassembly like
+xorl	%ecx,%gs:CONSTANT(%rdi,%rdx,2) 
+doesn't break machine reading of the output header, which uses ':' as a separator.
+- Add certain guardmalloc functions like GMfree to the list of suspicious functions. see rdar://10531021
+- Support using CW_ATTACH_PID while also spawning a child as usual.
+- Support for 10.8 new crashreporter changes.
+- Remove support for building on Leopard.
+- Removed old Carbon APIs(CSMemPtrToHand, etc) from the list of suspicious functions as they were causing false positives.
+- Removed the commpage test since it's obsolete in Lion.
+- If both CW_USE_GMAL and CW_EXPLOITABLE_READS are set, don't set MALLOC_ALLOW_READS since it's unnecessary and has performance penalties.
+- include disassembly for illegal instruction and abort exceptions.
+- Added the CW_EXPLOITABLE_JIT environment variable, documented in the README.
+- rdar://problem/9239365 crashwrangling 32-bit processes with libgmalloc is really slow on 10.7
+- remove reference to CW_Util from bucket_logs.rb to make it easier to release externally
+
+
+
+
+2.1.14 3/15/2011
+- Updated to work on Lion
+- Crashes where CFRelease calls CGContextDelegateFinalize are no longer marked exploitable.
+- Crashes reading 0xaaaaaaaa (see MallocScribble in man malloc) are no longer considered exploitable by default.
+- Crashes due to illegal instruction exception in libxpc are no longer considered exploitable (due to use of __builtin_trap).
+- Added a heuristic that assumes EXC_BAD_ACCESS crashes are exploitable if the stack pointer is far away from the base pointer.  This might happen if e.g. a variable sized stack buffer was passed a very large size.  You can disable this by setting the CW_IGNORE_FRAME_POINTER environment variable. 
+Crashes due to -D_FORTIFY_SOURCE are no longer considered exploitable.
+- When CW_REGISTER_LAUNCHD_NAME is used, exc_handler can now optionally be used to fork and exec a child and catch crashes in the child.  exc_handler will still exit after the first received crash.
+- Update exc_handler to transmit the exception port to the child via the bootstrap port rather than mach_ports_register.  10.7 broke the use of mach_ports_register, see rdar://8585892.
+- For signature purposes, e.g. memcpy$VARIANT$sse2 would be treated the same as memcpy$VARIANT$sse3x.
+Update to the latest 10.7 CrashReport generation code (no change to users) but fixes building in some cases.
+- If crashing in a call instruction, check the stack pointer against the access address to see if it was recursion, even if it looked like call  *0x8(%eax)
+- set __crashreporter_info__ to the value of CW_CURRENT_CASE to help debug exc_handler crashes.
+- update signature matching to handle offsets of memcpy$VARIANT$sse2, memcpy$VARIANT$sse3x, etc style names on 10.7.
+- If CW_NO_CRASH_REPORTER is set, don't forward the crash on to the host exception port handler.
+- Added CW_NO_LOG environment variable.
+- only warn about com.apple.DebugSymbols.plist if DBGShellCommands was set
+- If a crash is due to recursion but a suspicious function is found in the backtrace, consider the crash not exploitable.  Many times recursion crashes cause a crash in malloc, etc when trying to grow the stack.
+- When generating a signature for a crash, don't include an offset if the crash was in abort.
+- Add the CWE_* environment variable option described in the README.
+- added libsystem_kernel.dylib to CrashLog.rb's list of System modules for pthread_kill, etc.
+- add __time_load_locale to suspicious functions list for 10.7.(indicates a stack canary was overwritten)
+- fix up duplicate basename detection in fuzz_master.rb
+- stop building for PPC in 10.7, caused build error.
+- signature algorithm looks higher up the stack if the crashing function was usleep$NOCANCEL indicating it was an abort.
+- crashes accessing 0xbbadbeef should not be considered exploitable, these are CRASH() macros(most likely from WebCore / JavaScriptCore) 
+- add WebKit's fast*alloc functions to the list of suspicious functions that indicate memory corruption.
+- refactor all crash log analysis from CW_CrashLog to CrashLog.rb except for parts that are CW-specific.
+- Improve CrashLog.rb analysis of logs.
+- Adapt signature algorithm in CrashLog.rb so if it crashed in __kill, it goes up the stack 2 levels and uses those 2 functions for the signature. e.g. a crash in __kill / __abort / release_file_streams_for_task / main
+would have the signature __abort^release_file_streams_for_task^main.
+- rdar://problem/8142479 Illegal instruction exceptions in libdispatch should not be considered exploitable.
+- rdar://problem/8133654 CrashWrangler fails to identify process name in iCal crash log (CRLF/DOS line endings)
+
+
+
+
+2.0.7 6/10/2010
+- Refactored Ruby scripts and added command line options for existing scripts in support of Apple internal fuzzing automation The new command line options can be ignored outside of Apple.
+- bucket_logs.rb should display crashes executing an invalid address like
+Crash at [Executing invalid address] / otherfunction + 100
+rather than
+Crash at 0 + 140734799794040 / otherfunction + 100
+- CW_KILL_CHILD is now on by default, and CW_NO_KILL_CHILD is an option.
+- In bucket_logs.rb, crashes in __memcpy and other copy functions at any offset are considered to match if the calling function and offset are the same. e.g. __memcpy + 123 / foo + 12 will match __memcpy + 456 / foo + 12 
+since the root cause is presumably the same: a copy out of bounds.
+- Change the header format output by exc_handler to use the signal number rather than strsignal 
+- Update exc_handler to return the signal number + 100 if the crash was exploitable.
+- If the crashing instruction was something like rep/movsl	(%esi),(%edi), it should only be exploitable if the bad access address was not %esi.
+- Add libc++abi.dylib to the list of system modules in CW_CrashLog.rb
+- Added detection in exc_handler of access address that's invalid in the 64-bit ABI.  Don't treat these as null derefs.
+- fix false negative: a crash with disassembly like call *%rax should be marked exploitable.  This can happen on 64-bit if rax was invalid in the 64-bit ABI.
+- Fix exc_handler.m getting vm_read errors when disassembling code in the commpage.
+- Update sample scripts to be faster in the case where the program crashes
+- Update sample scripts to add the concept of CW_TIMEOUT.
+- In exc_handler, the recursion check should come after the suspicious function check, because if we have both recursion and heap corruption 
+(e.g. crash in szone_error), that should be considered exploitable.
+- change the suspicious functions list to use objc_msgSend* instead of just objc_msgSend.  There are new functions like objc_msgSend_vtable14 in 10.7. 
+- Update bucket_logs.rb to bucket logs properly if -pie is on and we crash in a function with no symbol for the function name.
+- Update README to document CW_NO_CRASH_REPORTER and CW_MACHINE_READABLE environment variables.
+- Added CW_TEST_CASE_PATH option for exc_handler
+- Updated exc_handler to add a line to the logs it outputs indicating the path to the test case that caused the crash.
+- Change test_suite.rb to use CW_NO_CRASHREPORTER to avoid extraneous noise.
+- Make sure the test suite works on 32-bit.
+
+1.3.2 3/18/2010
+Updated usage instructions in automate.rb to be clearer.
+Add support in automate.rb for using binary diffs(described in README.txt)
+
+1.3.1 1/23/2010
+Added a sterner warning not to use if ~/Library/Preferences/com.apple.DebugSymbols.plist exists
+Added _CFStringAppendFormatAndArgumentsAux to suspicious functions list
+
+1.3 11/3/2009
+Opened the source for exc_handler and added a test suite to verify proper functioning.
+Add analyze_log.rb/CrashLog.rb which can do an analysis of a static log without running the program.
+Add spaces around the names of the suspicious functions to reduce false positives
+Add CW_REGISTER_LAUNCHD_NAME option to support catching exceptions on a LaunchAgent/LaunchDaemon.
+Added the CW_EXPLOITABLE_READS option.
+Handle EXC_BREAKPOINT without printing out message about unknown exception type
+Fix a bug in bucket_logs.rb where the wrong module name was being matched, leading to incorrect duplicate detection (reported by Will Dormann).
+Fix a bug in bucket_logs.rb to handle it when the crashed thread's backtrace is empty(reported by and patched by Charlie Miller).
