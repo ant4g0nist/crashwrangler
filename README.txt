@@ -32,6 +32,10 @@ Don't run these programs in a world writable directory if you don't trust other 
 
 
 ========= Build / install =========
+Depends on capstone. Please install capstone. 
+I compiled capstone from sources. `make install` in capstone folder installs it to /usr/local/lib and /usr/local/include.
+if you installed it in a different location, please modify Makefile on `line 21`
+
 make
 Optionally, make tests && ruby test_suite.rb
 cp exc_handler *.rb [the directory where you are running test cases]
