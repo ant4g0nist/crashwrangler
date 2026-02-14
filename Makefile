@@ -5,10 +5,16 @@ SDKPATH=$(shell xcodebuild -sdk $(SDK) -version Path)
 CC=xcrun --sdk $(SDK) cc
 CXX=xcrun --sdk $(SDK) c++
 SW_VERS=$(shell sw_vers -productVersion | cut -b 1-4)
+UNAME_M=$(shell uname -m)
 DISAS_OBJECTS_DESKTOP=arm64_disasm.o
 DISAS_OBJECTS=$(DISAS_OBJECTS_DESKTOP)
 
-ifeq ($(SW_VERS), 10.10)
+BREW_PREFIX=$(shell brew --prefix 2>/dev/null || echo /usr/local)
+
+ifeq ($(UNAME_M), arm64)
+	CFLAGS=-arch arm64 -g -lcapstone -L$(BREW_PREFIX)/lib -I$(BREW_PREFIX)/include
+	EXC_HANDLER=exc_handler_silicon
+else ifeq ($(SW_VERS), 10.10)
 	CFLAGS=-arch x86_64 -g
 	EXC_HANDLER=exc_handler_yosemite
 else ifeq ($(SW_VERS), 10.11)
@@ -17,16 +23,14 @@ else ifeq ($(SW_VERS), 10.11)
 else ifeq ($(SW_VERS), 10.12)
 	CFLAGS=-arch x86_64 -g
 	EXC_HANDLER=exc_handler_sierra
-else ifeq ($(shell uname -p), arm)
-	CFLAGS=-arch arm64 -g -lcapstone -L/usr/local/lib -I/usr/local/include
-	EXC_HANDLER=exc_handler_silicon
-else 
+else
 	$(shell echo i don't know what to compile)
 	exit 0
 endif
 
 exc_handler: $(EXC_HANDLER)
-	
+	@true
+
 
 TESTS = abort badsyscall crashread crashwrite crashexec divzero illegalinstruction nocrash  nullderef spin recursion stack_buffer_overflow malloc_abort fortify_source_overflow cfrelease_null uninit_heap recursive_write bad_func_call cpp_crash objc_crash invalid_address_64 read_and_write_instruction illegal_libdispatch fastMalloc variable_length_stack_buffer exploitable_jit null_objc_msgSend
 
@@ -49,17 +53,20 @@ $(MIG_OBJECTS): $(MIG_OUTPUT)
 $(DISAS_OBJECTS_DESKTOP): arm64_disasm.c
 	$(CC) -c $(CFLAGS) arm64_disasm.c
 
-exc_handler.o: exc_handler.m exc_handler.h
+exc_handler.o: exc_handler.m exc_handler.h $(MIG_OUTPUT)
 	$(CC) $(CFLAGS) -Wall -Wextra -c -F/System/Library/PrivateFrameworks exc_handler.m
 
+CrashReport.o: CrashReport.m CoreSymbolication.h
+	$(CC) $(CFLAGS) -Wall -Wextra -c -F/System/Library/PrivateFrameworks CrashReport.m
+
 exc_handler_yosemite: CrashReport_Yosemite.o $(MIG_OBJECTS) $(DISAS_OBJECTS) exc_handler.o
-	$(CC) $(CFLAGS) -F/System/Library/PrivateFrameworks  -framework CoreSymbolication -framework IOKit -framework Foundation -framework ApplicationServices -framework Symbolication -framework CoreServices -framework CrashReporterSupport -framework CoreFoundation -framework CommerceKit -o exc_handler exc_handler.o $(DISAS_OBJECTS) CrashReport_Yosemite.o $(MIG_OBJECTS) 
+	$(CC) $(CFLAGS) -F/System/Library/PrivateFrameworks  -framework CoreSymbolication -framework IOKit -framework Foundation -framework ApplicationServices -framework Symbolication -framework CoreServices -framework CrashReporterSupport -framework CoreFoundation -framework CommerceKit -o exc_handler exc_handler.o $(DISAS_OBJECTS) CrashReport_Yosemite.o $(MIG_OBJECTS)
 
 exc_handler_sierra: CrashReport_Sierra.o $(MIG_OBJECTS) $(DISAS_OBJECTS) exc_handler.o
 	$(CC) $(CFLAGS) -F/System/Library/PrivateFrameworks  -framework CoreSymbolication -framework IOKit -framework Foundation -framework ApplicationServices -framework Symbolication -framework CoreServices -framework CrashReporterSupport -framework CoreFoundation -framework CommerceKit -o exc_handler exc_handler.o $(DISAS_OBJECTS) -framework CrashReporterSupport $(MIG_OBJECTS)
 
-exc_handler_silicon: CrashReport_Sierra.o $(MIG_OBJECTS) $(DISAS_OBJECTS) exc_handler.o
-	$(CC) $(CFLAGS) -F/System/Library/PrivateFrameworks  -framework CoreSymbolication -framework IOKit -framework Foundation -framework ApplicationServices -framework Symbolication -framework CoreServices -framework CrashReporterSupport -framework CoreFoundation -framework CommerceKit -o exc_handler exc_handler.o $(DISAS_OBJECTS) -framework CrashReporterSupport $(MIG_OBJECTS)
+exc_handler_silicon: CrashReport.o $(MIG_OBJECTS) $(DISAS_OBJECTS) exc_handler.o
+	$(CC) $(CFLAGS) -F/System/Library/PrivateFrameworks -framework CoreSymbolication -framework IOKit -framework Foundation -framework CoreServices -framework CoreFoundation -o exc_handler exc_handler.o $(DISAS_OBJECTS) CrashReport.o $(MIG_OBJECTS)
 
 TEST_FLAGS=
 
@@ -121,4 +128,4 @@ null_objc_msgSend: $(TEST_DIR)/null_objc_msgSend.c
 	$(CC) $(TEST_FLAGS) -o null_objc_msgSend  $(TEST_DIR)/null_objc_msgSend.c
 
 clean:
-	- rm -rf exc_handler $(TESTS)  *.dSYM $(MIG_OUTPUT) $(DISAS_OBJECTS) $(MIG_OBJECTS) exc_handler.o 
+	- rm -rf exc_handler $(TESTS)  *.dSYM $(MIG_OUTPUT) $(DISAS_OBJECTS) $(MIG_OBJECTS) exc_handler.o CrashReport.o

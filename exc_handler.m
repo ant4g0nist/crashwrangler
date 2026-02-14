@@ -605,7 +605,7 @@ kern_return_t catch_mach_exception_raise_state_identity(__attribute__((unused)) 
 
             }
         }
-        disassembly = MY_DISAS(d_ptr + pc_page_offset, MAX_INSTRUCTION_STRLEN, cputype);
+        disassembly = MY_DISAS((unsigned long long)(d_ptr + pc_page_offset), MAX_INSTRUCTION_STRLEN, cputype);
         printf("disassembly: %s\n", disassembly);
         delete_colons(disassembly);
         chomp(disassembly);
@@ -706,7 +706,7 @@ kern_return_t catch_mach_exception_raise_state_identity(__attribute__((unused)) 
                                         "variable.\n");
     }
     
-    //See README.txt for the format description.
+    //See README.md for the format description.
     snprintf(logmsg, sizeof(logmsg), 
              "exception=%s:signal=%d:is_exploitable=%s:instruction_disassembly=%s:"
              "instruction_address=0x%016qx:access_type=%s:access_address=0x%016qx:\n",
@@ -933,6 +933,51 @@ uint32_t is_stack_suspicious(NSString * desc, mach_exception_data_type_t access_
         //now calls WTFCrash sometimes.
         return CHANGE_TO_NOT_EXPLOITABLE;
     }
+
+    //On arm64, __stack_chk_fail may be mis-symbolicated (e.g. as a64l) because CoreSymbolication
+    //picks the nearest exported symbol rather than the enclosing function. Detect stack buffer
+    //overflows by looking for corrupted return addresses in the backtrace — frames in ??? with
+    //non-canonical or suspiciously-patterned addresses indicate stack corruption.
+    if (exception_type == EXC_CRASH) {
+        //Look for frames with ??? module and suspicious addresses (e.g. 0x414141414141)
+        //Frame format: "5    ???                                 0x0000414141414141 ..."
+        NSArray *lines = [thread_log componentsSeparatedByString:@"\n"];
+        for (NSString *line in lines) {
+            if ([line rangeOfString:@"???"].location != NSNotFound) {
+                //Find "0x" prefix to extract the address (skip frame number)
+                NSRange oxRange = [line rangeOfString:@"0x"];
+                if (oxRange.location == NSNotFound) continue;
+                NSString *hexPart = [line substringFromIndex:oxRange.location + 2];
+                NSScanner *scanner = [NSScanner scannerWithString:hexPart];
+                unsigned long long frameAddr = 0;
+                if ([scanner scanHexLongLong:&frameAddr] && frameAddr > 0xFFFF) {
+                    //Check if the address looks corrupted:
+                    //1. Contains repeating byte patterns (buffer overflow fill)
+                    uint8_t *bytes = (uint8_t *)&frameAddr;
+                    int repeating = 0;
+                    for (int b = 1; b < 8; b++) {
+                        if (bytes[b] == bytes[0] && bytes[0] != 0) repeating++;
+                    }
+                    //If 3+ bytes are the same non-zero value, suspicious
+                    if (repeating >= 3) {
+                        APPEND_TO_LOGMSG_HR_WITH_FORMAT("The crash is suspected to be an "
+                            "exploitable stack buffer overflow due to a corrupted return "
+                            "address (0x%llx) in the backtrace\n", frameAddr);
+                        return CHANGE_TO_EXPLOITABLE;
+                    }
+                    //2. Non-canonical address on arm64 (outside normal user/kernel range)
+                    if ((frameAddr & 0xFFFF000000000000ULL) != 0 &&
+                        (frameAddr & 0xFFFF000000000000ULL) != 0xFFFF000000000000ULL) {
+                        APPEND_TO_LOGMSG_HR_WITH_FORMAT("The crash is suspected to be an "
+                            "exploitable stack buffer overflow due to a non-canonical return "
+                            "address (0x%llx) in the backtrace\n", frameAddr);
+                        return CHANGE_TO_EXPLOITABLE;
+                    }
+                }
+            }
+        }
+    }
+
     return NO_CHANGE;
 }
 

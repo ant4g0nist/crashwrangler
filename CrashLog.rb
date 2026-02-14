@@ -214,10 +214,11 @@ class CrashLog
     end
     
     #Looks like: Code Type:       X86-64 (Native)
-    if @log_string =~ /Code Type:\s+(X86-64|X86|PPC|ARM)/
+    #or: Code Type:       ARM-64 (Native)
+    if @log_string =~ /Code Type:\s+(X86-64|X86|PPC|ARM-64|ARM)/
       @architecture = $1
     else
-      raise "Malformed log #{@log_path}, couldn't get valid Code Type: (X86-64|X86||PPC)'"
+      raise "Malformed log #{@log_path}, couldn't get valid Code Type: (X86-64|X86|PPC|ARM-64|ARM)'"
     end
 
     @@Program_Counter_regs.each { |reg|
@@ -229,8 +230,11 @@ class CrashLog
 
     #Looks like: OS Version:      Mac OS X 10.6 (10A432)
     #or Mac OS X Server 10.6.2 (10C517f)
+    #or macOS 13.0 (22A380) — modern format since macOS 11+
     if @log_string =~ /OS Version:\s+Mac OS X (Server )?10.\d\S* \((\w+)\)/
       @build_version = $2
+    elsif @log_string =~ /OS Version:\s+macOS \d+\.\d\S* \((\w+)\)/
+      @build_version = $1
     elsif @log_string =~ /iOS (\d\.)+\d \((\w+)\)/
       @build_version = $2
     else
@@ -490,8 +494,8 @@ class CrashLog
       arch = "x86_64"
     elsif @architecture == "PPC"
       arch = "ppc"
-    elsif @architecture == "ARM"
-      raise "Error: getting disassembly on ARM is not supported"
+    elsif @architecture == "ARM" or @architecture == "ARM-64"
+      return "unknown" # disassembly via otool not supported for ARM/ARM-64
     else
       raise "Error: unknown arch #{architecture} in #{@log_path}"
     end
@@ -545,15 +549,15 @@ class CrashLog
       elsif @disassembly =~ /^l/
         return "read"
       end
-    elsif @architecture == "ARM"
+    elsif @architecture == "ARM" || @architecture == "ARM-64"
       if @disassembly =~ /^st/
         return "write"
       elsif @disassembly =~ /^ld/
         return "read"
       elsif @disassembly =~ /^push/
         return "recursion"
-      else 
-        return "unknkown"
+      else
+        return "unknown"
       end
     elsif @architecture == "X86-64" || @architecture == "X86"
 
@@ -686,6 +690,32 @@ class CrashLog
     return false
   end
 
+  def has_corrupted_return_address?
+    # Look for ??? frames with corrupted/suspicious addresses that indicate
+    # stack buffer overflow (e.g. 0x0000414141414141 from 'AAAA...' fill)
+    @crashed_thread_stack.split(/\n/).each { |line|
+      next unless line =~ /\?\?\?/
+      # Extract the address from the frame
+      if line =~ /0x([0-9a-f]{8,16})/i
+        addr = $1.to_i(16)
+        next if addr == 0 || addr <= 0xFFFF
+        # Check for repeating byte patterns (classic overflow fill)
+        bytes = (0..7).map { |i| (addr >> (i * 8)) & 0xFF }
+        nonzero = bytes.select { |b| b != 0 }
+        if nonzero.length >= 3
+          counts = nonzero.group_by { |b| b }.values.map(&:length)
+          return true if counts.max >= 3  # 3+ same non-zero byte
+        end
+        # Non-canonical arm64 address (outside normal user/kernel range)
+        high16 = (addr >> 48) & 0xFFFF
+        if high16 != 0 && high16 != 0xFFFF
+          return true
+        end
+      end
+    }
+    return false
+  end
+
   #returns a string, not a bool
   def get_is_exploitable_s
     #the order of operations in this if chain is important.
@@ -697,13 +727,18 @@ class CrashLog
       #this should be above the suspicious stack check to prevent CFRelease(NULL) from being exploitable
       return @@NO
     elsif @exception_type == "EXC_BAD_INSTRUCTION"
-        return @@NO
-      end
+      return @@NO
     elsif @access_type == "recursion"
       return @@NO #this check needs to be before the suspicious stack check.
     elsif self.suspicious_stack?
       return @@YES
     elsif @exception_type == "EXC_CRASH"
+      # On arm64, __stack_chk_fail may be mis-symbolicated (e.g. as a64l) so
+      # suspicious_stack? misses it. Detect stack buffer overflows by looking
+      # for corrupted return addresses (??? frames with suspicious addresses).
+      if has_corrupted_return_address?
+        return @@YES
+      end
       return @@NO
     elsif @exception_type == "EXC_BAD_ACCESS"
       acc_type = @access_type

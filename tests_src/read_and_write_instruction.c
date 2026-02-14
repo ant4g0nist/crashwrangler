@@ -22,6 +22,11 @@ int main (int argc, char ** argv) {
             "movl $0x40000000, %edi\n\t"
             "movl $10, %ecx\n\t"
             "rep/movsl");
+#elif defined(__arm64__)
+    __asm__("mov x0, #0x8888\n\t"
+            "movk x0, #0x8888, lsl #16\n\t"
+            "movk x0, #0x8888, lsl #32\n\t"
+            "ldr x1, [x0]");
 #endif
 
 }

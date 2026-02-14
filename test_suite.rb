@@ -81,7 +81,15 @@ Expected = {
 #  Expected["uninit_heap"] = ["EXC_BAD_ACCESS", "no"]
 #end
 if `sw_vers -productVersion`.to_f < 10.7
-  Expected.delete("illegal_libdispatch") 
+  Expected.delete("illegal_libdispatch")
+end
+
+if `uname -m`.strip == "arm64"
+  Expected["divzero"] = ["nocrash", "no"]                       # sdiv returns 0, no trap
+  Expected["fortify_source_overflow"] = ["EXC_BREAKPOINT", "no"] # brk trap, not abort
+  Expected["malloc_abort"] = ["EXC_BREAKPOINT", "no"]            # brk trap, not abort
+  Expected["illegal_libdispatch"] = ["EXC_BREAKPOINT", "no"]     # brk, not ud2
+  Expected["variable_length_stack_buffer"] = ["EXC_BAD_ACCESS", "no"] # detection limitation
 end
 
 #line =  string like exception=EXC_BAD_ACCESS:signal=Segmentation fault:is_exploitable= no:

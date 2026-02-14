@@ -22,7 +22,11 @@ int main() {
     /*%r0, #0x77777777\n\t"
      "bl %r0"*/
 #elif defined (__arm64__)
-//for now just do nothing
+    __asm__("mov x0, #0x7777\n\t"
+            "movk x0, #0x7777, lsl #16\n\t"
+            "movk x0, #0x7777, lsl #32\n\t"
+            "movk x0, #0x7777, lsl #48\n\t"
+            "blr x0");
 #else
 #error Unknown architecture
 #endif
