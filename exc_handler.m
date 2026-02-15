@@ -280,9 +280,9 @@ int main(int argc, char **argv) {
     if (getenv("CW_NO_LOG")) {
         log_path = "/dev/null";
     }
-    g_forward_to_CrashReporter = YES;
-    if (getenv("CW_NO_CRASH_REPORTER")) {
-        g_forward_to_CrashReporter = NO;
+    g_forward_to_CrashReporter = NO;
+    if (getenv("CW_FORWARD_CRASH_REPORTER")) {
+        g_forward_to_CrashReporter = YES;
     }
     if (getenv("CW_EXPLOITABLE_READS")) {
         g_exploitable_reads = YES;
@@ -409,13 +409,13 @@ int main(int argc, char **argv) {
         signal(SIGUSR1, SIG_DFL);
         signal(SIGUSR2, SIG_DFL);
 		
-        ret = task_set_exception_ports(mach_task_self(), 
+        ret = task_set_exception_ports(mach_task_self(),
                                        mask,
                                        exc,
-                                       EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, 
+                                       EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
                                        MACHINE_THREAD_STATE);
-        EXIT_ON_MACH_ERROR("task_set_exception_ports", ret);  
-		
+        EXIT_ON_MACH_ERROR("task_set_exception_ports", ret);
+
         if (getenv("CW_USE_GMAL") != NULL) {
             setenv("MALLOC_FILL_SPACE", "1", 1);
             setenv("DYLD_INSERT_LIBRARIES", "/usr/lib/libgmalloc.dylib", 1);
@@ -439,8 +439,18 @@ void delete_lock() {
     }
 }
 
-kern_return_t catch_transfer_ports (__attribute__((unused)) mach_port_t server, 
-									mach_port_t *exception_port, 
+// Stub for EXCEPTION_DEFAULT handler - we use EXCEPTION_STATE_IDENTITY instead
+kern_return_t catch_mach_exception_raise(__attribute__((unused)) exception_port_t exception_port,
+                                         __attribute__((unused)) thread_port_t thread,
+                                         __attribute__((unused)) task_port_t task,
+                                         __attribute__((unused)) exception_type_t exception,
+                                         __attribute__((unused)) mach_exception_data_t code,
+                                         __attribute__((unused)) mach_msg_type_number_t code_count) {
+    return KERN_FAILURE;  // We don't handle this behavior; use state_identity
+}
+
+kern_return_t catch_transfer_ports (__attribute__((unused)) mach_port_t server,
+									mach_port_t *exception_port,
 									mach_port_t *orig_bootstrap_port) {
 	*exception_port = g_exception_port;
 	*orig_bootstrap_port = g_orig_bootstrap_port;
@@ -462,7 +472,9 @@ kern_return_t catch_mach_exception_raise_state_identity(__attribute__((unused)) 
     char *d_ptr = NULL;
     char *disassembly = NULL;
     const char * access_type = "";
+#if !defined(__arm64__)
     exception_port_t cr_exception_port;
+#endif
     //create a lock file lock_filename so that the automation doesn't try to kill the 
     //child while we're still doing handling, including writing the crashlog, which 
     //seems to take forever on Leopard.        
@@ -721,27 +733,39 @@ kern_return_t catch_mach_exception_raise_state_identity(__attribute__((unused)) 
     write_crashlog(task, thread, exception, code, code_count, flavor, in_state, 
                    in_state_count, real_exception);
     if (g_forward_to_CrashReporter) {
-        //Forward the crash to local CrashReporter. 
+#if defined(__arm64__)
+        // On modern macOS (Apple Silicon), ReportCrash is a host-level
+        // exception handler and cannot be forwarded to directly via
+        // bootstrap_look_up. Instead, clear our task-level exception ports
+        // and return KERN_FAILURE so the kernel re-delivers the exception
+        // to the host-level handler (ReportCrash).
+        task_set_exception_ports(task, EXC_MASK_ALL,
+                                MACH_PORT_NULL,
+                                EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
+                                MACHINE_THREAD_STATE);
+        delete_lock();
+        return KERN_FAILURE;  // Kernel will forward to host exception handler
+#else
+        //Forward the crash to local CrashReporter.
         //Won't work if the process is running as root.  See rdar://6833167.
-        //Note: it won't actually submit the report to Apple unless you click OK or have
-        //auto-submit turned on.
         ret= bootstrap_look_up(bootstrap_port, "com.apple.ReportCrash", &cr_exception_port);
         EXIT_ON_MACH_ERROR("bootstrap_look_up", ret);
-        ret = mach_exception_raise_state_identity( cr_exception_port, 
+        ret = mach_exception_raise_state_identity( cr_exception_port,
                                                   thread,
-                                                  task,  exception, 
+                                                  task,  exception,
                                                   code,
-                                                  code_count, 
+                                                  code_count,
                                                   flavor,  in_state,
-                                                  in_state_count, 
-                                                  out_state, 
+                                                  in_state_count,
+                                                  out_state,
                                                   out_state_count);
         if (ret == KERN_FAILURE) {
             my_printf("Failed to forward exception to CrashReporter.\n");
         } else if (ret){
             EXIT_ON_MACH_ERROR("mach_exception_raise_state_identity", ret);
         }
-    } 
+#endif
+    }
     *out_state_count = in_state_count;
     memcpy(out_state,in_state,in_state_count);
     delete_lock();

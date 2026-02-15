@@ -42,7 +42,8 @@
 # @APPLE_DTS_LICENSE_HEADER_END@
 ##
 require 'fileutils'
-ENV['CW_NO_CRASH_REPORTER']="1"
+# Forwarding to CrashReporter is now disabled by default.
+# Set CW_FORWARD_CRASH_REPORTER=1 to enable it.
 ENV["CW_EXPLOITABLE_JIT"]="1"
 #this script assumes that make and make tests has already been run
 crashlog_dir = "./crashlogs/"

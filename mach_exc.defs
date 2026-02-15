@@ -64,7 +64,7 @@ subsystem
 #if	KERNEL_USER
 	  KernelUser
 #endif
-		     mach_exc 2407; 
+		     mach_exc 2405;
 
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
@@ -74,9 +74,24 @@ ServerPrefix catch_;
 type mach_exception_data_t	= array[*:2] of int64_t;
 type exception_type_t		= int;
 
+/* Routine 2405: EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES */
+routine		mach_exception_raise(
+#if	KERNEL_USER
+			exception_port  : mach_port_move_send_t;
+			thread		: mach_port_move_send_t;
+			task		: mach_port_move_send_t;
+#else	/* KERNEL_USER */
+			exception_port  : mach_port_t;
+			thread          : mach_port_t;
+			task            : mach_port_t;
+#endif	/* KERNEL_USER */
+			exception       : exception_type_t;
+			code            : mach_exception_data_t);
 
+/* Routine 2406: EXCEPTION_STATE | MACH_EXCEPTION_CODES */
+skip;  /* mach_exception_raise_state - not used */
 
-
+/* Routine 2407: EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES */
 routine		mach_exception_raise_state_identity(
 #if	KERNEL_USER
 			exception_port  : mach_port_move_send_t;
