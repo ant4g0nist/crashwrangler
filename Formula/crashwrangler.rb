@@ -2,7 +2,7 @@ class Crashwrangler < Formula
   desc "Capture, classify, analyze, and deduplicate macOS crashes"
   homepage "https://github.com/ant4g0nist/crashwrangler"
   url "https://github.com/ant4g0nist/crashwrangler.git",
-      revision: "0686e7c0bf72c2329e4eca4244b564113a82563d"
+      revision: "c1f0d9e97be3d76849630e82b7c6347716f235f7"
   version "3.0.0"
   license all_of: ["Apache-2.0", :cannot_represent]
   head "https://github.com/ant4g0nist/crashwrangler.git", branch: "main"
