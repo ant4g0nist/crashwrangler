@@ -28,7 +28,7 @@ Don't run these programs in a world-writable directory if you don't trust other 
 
 - **macOS on Apple Silicon (arm64)** is the supported target for CrashWrangler v3.
 - Runtime and offline analysis are implemented in Rust's standard library. There are no crates or third-party native libraries.
-- Live capture calls Mach, libSystem, and Apple's private CoreSymbolication framework directly. The build compiles a small exception-message server generated from `mach_exc.defs` by Apple's MIG tool.
+- Live capture calls Mach, libSystem, and Apple's private CoreSymbolication framework directly. The build uses Apple's MIG tool to generate a small exception-message server from the `mach_exc.defs` supplied by the active macOS SDK.
 
 ### arm64 Behavioral Differences
 
@@ -64,6 +64,17 @@ This builds and runs unit tests plus a corpus of intentionally crashing helper p
 ```sh
 cp exc_handler [the directory where you are running test cases]
 ```
+
+### Homebrew
+
+This repository can also be used directly as a Homebrew tap:
+
+```sh
+brew tap ant4g0nist/crashwrangler https://github.com/ant4g0nist/crashwrangler
+brew install crashwrangler
+```
+
+The formula installs `crashwrangler` and a compatible `exc_handler` symlink. It builds from source and therefore needs the Xcode Command Line Tools. To build the newest development revision, use `brew install --HEAD crashwrangler`.
 
 ## Quick Start
 
@@ -225,3 +236,10 @@ The algorithm for determining exploitability:
 ## Notes
 
 CrashWrangler may malfunction if you have anything set in `~/Library/Preferences/com.apple.DebugSymbols.plist`. This preference would not normally exist; if you don't know what it is, don't worry about it.
+
+## Licensing
+
+- The Rust implementation and other code authored for this repository are licensed under Apache-2.0.
+- The crash fixtures in `tests_src/` and automation scripts in `sample_scripts/` remain under Apple's Sample Code License.
+
+See [LICENSE](LICENSE) for the licensing map, [LICENSE-APACHE](LICENSE-APACHE) for Apache-2.0, and [LICENSE-APPLE-SAMPLE-CODE](LICENSE-APPLE-SAMPLE-CODE) for Apple's terms.

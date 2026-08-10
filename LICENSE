@@ -1,0 +1,14 @@
+CrashWrangler licensing
+=======================
+
+The Rust implementation and other code authored for this repository are
+licensed under the Apache License, Version 2.0. See LICENSE-APACHE.
+
+SPDX-License-Identifier: Apache-2.0
+
+The crash fixtures in tests_src/ and automation scripts in sample_scripts/ are
+derived from Apple's original CrashWrangler sample code. Those files remain
+subject to the Apple Sample Code License in LICENSE-APPLE-SAMPLE-CODE.
+
+Copyright and attribution notices recorded in the version-control history
+remain applicable.

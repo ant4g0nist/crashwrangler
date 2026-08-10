@@ -10,7 +10,7 @@ TESTS = abort badsyscall crashread crashwrite crashexec divzero illegalinstructi
 
 TEST_DIR = tests_src
 
-RUST_SOURCES = Cargo.toml Cargo.lock build.rs mach_exc.defs $(wildcard src/*.rs)
+RUST_SOURCES = Cargo.toml Cargo.lock build.rs $(wildcard src/*.rs)
 
 exc_handler: $(RUST_SOURCES)
 	cargo build --release

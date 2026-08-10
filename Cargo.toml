@@ -3,8 +3,10 @@ name = "crashwrangler"
 version = "3.0.0"
 edition = "2024"
 rust-version = "1.85"
-license = "APSL-2.0"
+license-file = "LICENSE"
 description = "macOS crash capture, exploitability analysis, and deduplication"
+homepage = "https://github.com/ant4g0nist/crashwrangler"
+repository = "https://github.com/ant4g0nist/crashwrangler"
 
 [dependencies]
 

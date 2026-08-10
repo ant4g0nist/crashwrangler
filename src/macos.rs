@@ -466,17 +466,17 @@ unsafe extern "C" fn catch_mach_exception_raise(
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn catch_transfer_ports(
-    _server: MachPort,
-    exception_port: *mut MachPort,
-    bootstrap_port: *mut MachPort,
+unsafe extern "C" fn catch_mach_exception_raise_state(
+    _exception_port: MachPort,
+    _exception: c_int,
+    _code: *const i64,
+    _code_count: MachCount,
+    _flavor: *mut c_int,
+    _old_state: *const u32,
+    _old_state_count: MachCount,
+    _new_state: *mut u32,
+    _new_state_count: *mut MachCount,
 ) -> KernReturn {
-    if !exception_port.is_null() {
-        unsafe { *exception_port = 0 };
-    }
-    if !bootstrap_port.is_null() {
-        unsafe { *bootstrap_port = 0 };
-    }
     KERN_FAILURE
 }
 

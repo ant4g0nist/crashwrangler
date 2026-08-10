@@ -10,7 +10,7 @@ fn run(command: &mut Command, description: &str) {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=mach_exc.defs");
+    println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         panic!("CrashWrangler's live exception handler requires macOS");
     }
@@ -18,13 +18,35 @@ fn main() {
         panic!("CrashWrangler v3 supports Apple Silicon (arm64) only");
     }
 
+    let sdk = Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()
+        .unwrap_or_else(|error| panic!("could not locate the macOS SDK: {error}"));
+    assert!(
+        sdk.status.success(),
+        "xcrun could not locate the macOS SDK: {}",
+        String::from_utf8_lossy(&sdk.stderr).trim()
+    );
+    let definitions = PathBuf::from(
+        String::from_utf8(sdk.stdout)
+            .expect("the macOS SDK path is UTF-8")
+            .trim(),
+    )
+    .join("usr/include/mach/mach_exc.defs");
+    assert!(
+        definitions.is_file(),
+        "the macOS SDK does not contain {}",
+        definitions.display()
+    );
+
     let output = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by Cargo"));
     let header = output.join("mach_excServer.h");
     let server = output.join("mach_excServer.c");
     let object = output.join("mach_excServer.o");
 
     run(
-        Command::new("mig")
+        Command::new("xcrun")
+            .args(["--sdk", "macosx", "mig"])
             .arg("-header")
             .arg("/dev/null")
             .arg("-user")
@@ -33,7 +55,7 @@ fn main() {
             .arg(&header)
             .arg("-server")
             .arg(&server)
-            .arg("mach_exc.defs"),
+            .arg(&definitions),
         "Apple MIG",
     );
     run(
