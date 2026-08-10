@@ -1,3 +1,17 @@
+3.0 8/10/2026
+- Rewrite the live exception handler, report generator, offline analyzer, and bucketer in dependency-free Rust.
+- Call Mach/libSystem and CoreSymbolication directly; retain only Apple MIG-generated exception-server glue.
+- Support privileged PID attachment and launchd Mach services, including combined service/child port sets and explicit capture-error propagation.
+- Replace the Ruby test harness with Rust unit and live-corpus integration tests.
+- Remove legacy precompiled CrashReport object files and Objective-C/C/Ruby production implementations.
+- Remove the Capstone dependency. Add a bounded, allocation-free arm64 instruction classifier.
+- Add structured CrashEvent normalization and support modern .ips JSON reports.
+- Treat arm64 fortify failures, allocator corruption traps, and oversized stack allocations as exploitable.
+- Make integration-test failures return a failing status and add focused unit/fixture tests.
+- Replace shell-interpolated disassembly and unsafe Marshal caches with argument-safe subprocesses and JSON.
+- Harden exception-code bounds, child cleanup, vm_read buffer handling, and crash-log permissions.
+- Make Apple Silicon the explicit supported build target and modernize Makefile dependency handling.
+
 2.4 5/8/2017
 - Change bad instruction to not be exploitable. The vast majority of times this exception occurs, it's because of deliberate attempts to halt the process, e.g. by calling __builtin_trap()
 - Update to support 10.12.4 and 10.13

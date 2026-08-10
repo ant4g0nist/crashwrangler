@@ -4,6 +4,41 @@
 
 # to stop me from pushing crashlogs to public git
 crashlogs/
+bad_logs/
+unique_crashes/
+analyzed_logs.json
+cw.lck
+
+# CrashWrangler build products
+/exc_handler
+/target/
+/abort
+/badsyscall
+/crashread
+/crashwrite
+/crashexec
+/divzero
+/illegalinstruction
+/nocrash
+/nullderef
+/spin
+/recursion
+/stack_buffer_overflow
+/malloc_abort
+/fortify_source_overflow
+/cfrelease_null
+/uninit_heap
+/recursive_write
+/bad_func_call
+/cpp_crash
+/objc_crash
+/invalid_address_64
+/read_and_write_instruction
+/illegal_libdispatch
+/fastMalloc
+/variable_length_stack_buffer
+/exploitable_jit
+/null_objc_msgSend
 
 ### macOS ###
 # General

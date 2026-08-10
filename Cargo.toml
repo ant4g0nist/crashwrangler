@@ -1,0 +1,15 @@
+[package]
+name = "crashwrangler"
+version = "3.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "APSL-2.0"
+description = "macOS crash capture, exploitability analysis, and deduplication"
+
+[dependencies]
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true
