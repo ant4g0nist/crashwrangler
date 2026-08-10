@@ -116,6 +116,16 @@ impl CrashEvent {
         )
     }
 
+    pub fn human_description(&self) -> String {
+        format!(
+            "CrashWrangler classified this {} as {} (access: {}, address: 0x{:016x}).",
+            self.exception_type,
+            self.exploitability.as_str(),
+            self.access_kind.as_str(),
+            self.access_address.unwrap_or(0)
+        )
+    }
+
     pub fn to_json(&self) -> String {
         format!(
             "{{\"process\":{{\"name\":{},\"path\":{},\"architecture\":{},\"build_version\":{}}},\"exception\":{{\"type\":{},\"signal\":{},\"code\":{},\"instruction_address\":\"0x{:016x}\",\"access_address\":\"0x{:016x}\",\"access_type\":{},\"instruction\":{}}},\"analysis\":{{\"is_exploitable\":{},\"signature\":{}}}}}",
@@ -334,11 +344,16 @@ fn classify(event: &CrashEvent) -> Exploitability {
                 Exploitability::No
             }
         }
-        "EXC_BAD_INSTRUCTION" => Exploitability::No,
+        "EXC_BAD_INSTRUCTION" => {
+            if release_trap(event) {
+                Exploitability::No
+            } else {
+                Exploitability::Yes
+            }
+        }
         _ if event.access_kind == AccessKind::Recursion => Exploitability::No,
-        _ if suspicious_stack(event) => Exploitability::Yes,
         "EXC_CRASH" => {
-            if corrupted_return_address(event) {
+            if suspicious_stack(event) || corrupted_return_address(event) {
                 Exploitability::Yes
             } else {
                 Exploitability::No
@@ -346,7 +361,10 @@ fn classify(event: &CrashEvent) -> Exploitability {
         }
         "EXC_BAD_ACCESS" => match event.access_kind {
             AccessKind::Execute => Exploitability::Yes,
+            AccessKind::Recursion => Exploitability::No,
+            _ if event.access_address == Some(0xbbad_beef) => Exploitability::No,
             _ if event.access_address.unwrap_or(0) < 4096 * 8 => Exploitability::No,
+            _ if suspicious_stack(event) => Exploitability::Yes,
             AccessKind::Read => {
                 if std::env::var_os("CW_EXPLOITABLE_READS").is_some() {
                     Exploitability::Yes
@@ -354,16 +372,10 @@ fn classify(event: &CrashEvent) -> Exploitability {
                     Exploitability::No
                 }
             }
-            AccessKind::Write => {
-                if event.access_address == Some(0xbbad_beef) {
-                    Exploitability::No
-                } else {
-                    Exploitability::Yes
-                }
-            }
-            AccessKind::Recursion => Exploitability::No,
+            AccessKind::Write => Exploitability::Yes,
             AccessKind::Unknown => Exploitability::Unknown,
         },
+        _ if suspicious_stack(event) => Exploitability::Yes,
         _ => Exploitability::Unknown,
     }
 }
@@ -497,4 +509,54 @@ fn system_module(module: &str) -> bool {
                 | "libxpc.dylib"
                 | "libgmalloc.dylib"
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(exception_type: &str, access_kind: AccessKind, address: Option<u64>) -> CrashEvent {
+        CrashEvent {
+            process_name: "fixture".to_owned(),
+            process_path: "/tmp/fixture".to_owned(),
+            architecture: "ARM-64".to_owned(),
+            build_version: "test".to_owned(),
+            exception_type: exception_type.to_owned(),
+            signal: "SIGSEGV".to_owned(),
+            exception_code: "KERN_INVALID_ADDRESS".to_owned(),
+            access_address: address,
+            instruction_address: 0x1000,
+            instruction: ".long 0x00000000".to_owned(),
+            access_kind,
+            frames: vec![Frame {
+                module: "fixture".to_owned(),
+                address: 0x1000,
+                module_offset: 0x1000,
+                function: "main".to_owned(),
+                function_offset: 0,
+            }],
+            exploitability: Exploitability::Unknown,
+            signature: String::new(),
+        }
+    }
+
+    #[test]
+    fn classifies_illegal_instruction_as_exploitable() {
+        let mut crash = event("EXC_BAD_INSTRUCTION", AccessKind::Unknown, None);
+        crash.finish_analysis();
+        assert_eq!(crash.exploitability, Exploitability::Yes);
+    }
+
+    #[test]
+    fn keeps_release_traps_and_suspicious_null_dereferences_non_exploitable() {
+        let mut release = event("EXC_BAD_INSTRUCTION", AccessKind::Unknown, None);
+        release.frames[0].function = "CFRelease".to_owned();
+        release.finish_analysis();
+        assert_eq!(release.exploitability, Exploitability::No);
+
+        let mut null = event("EXC_BAD_ACCESS", AccessKind::Write, Some(0));
+        null.frames[0].function = "objc_msgSend".to_owned();
+        null.finish_analysis();
+        assert_eq!(null.exploitability, Exploitability::No);
+    }
 }

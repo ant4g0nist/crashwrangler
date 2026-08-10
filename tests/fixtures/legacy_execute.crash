@@ -1,0 +1,14 @@
+Process:         legacy_exec [4242]
+Path:            /tmp/legacy_exec
+Code Type:       ARM-64 (Native)
+OS Version:      macOS 15.0 (24A335)
+
+Exception Type:  EXC_BAD_ACCESS (SIGSEGV)
+Exception Codes: KERN_INVALID_ADDRESS at 0x0000000100004000
+
+Thread 0 Crashed:
+0   legacy_exec 0x0000000100004000 call_bad_address + 12
+
+Thread 0 crashed with ARM Thread State (64-bit):
+    fp: 0x000000016fdff000    sp: 0x000000016fdfeff0    pc: 0x0000000100004000
+

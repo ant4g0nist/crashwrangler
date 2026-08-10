@@ -11,6 +11,11 @@
 - Replace shell-interpolated disassembly and unsafe Marshal caches with argument-safe subprocesses and JSON.
 - Harden exception-code bounds, child cleanup, vm_read buffer handling, and crash-log permissions.
 - Make Apple Silicon the explicit supported build target and modernize Makefile dependency handling.
+- Restore the documented illegal-instruction classification while preserving deliberate CoreFoundation trap exceptions.
+- Implement native `CW_TIMEOUT` handling, deterministic `CWE_*` child overrides, and strict machine-readable logs.
+- Fix exception forwarding/no-kill handling and add retained launchd and forwarding integration checks.
+- Add live environment-contract coverage plus legacy `.crash` and CrashWrangler-log fixtures.
+- Modernize current macOS sample paths, remove their Ruby timers, and remove obsolete iTunes/iWork scripts.
 
 2.4 5/8/2017
 - Change bad instruction to not be exploitable. The vast majority of times this exception occurs, it's because of deliberate attempts to halt the process, e.g. by calling __builtin_trap()

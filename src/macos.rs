@@ -3,6 +3,7 @@
 
 use crate::arm64::{self, AccessKind};
 use crate::crash::{CrashEvent, Exploitability, Frame};
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::fs::{self, OpenOptions};
@@ -10,7 +11,8 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, mpsc};
+use std::time::Duration;
 
 type MachPort = c_uint;
 type KernReturn = c_int;
@@ -25,7 +27,9 @@ const MACH_PORT_RIGHT_PORT_SET: c_int = 3;
 const MACH_MSG_TYPE_MAKE_SEND: c_int = 20;
 const EXC_CRASH: c_int = 10;
 const EXC_MASK_CRASH: c_uint = 1 << EXC_CRASH;
-const EXC_MASK_ALL: c_uint = 0x7fff_ffff;
+// exception_types.h defines EXC_MASK_ALL as exception bits 1 through 13 on
+// arm64. Bits outside that range make task_set_exception_ports fail.
+const EXC_MASK_ALL: c_uint = 0x0000_3ffe;
 const EXCEPTION_STATE_IDENTITY: c_int = 3;
 const MACH_EXCEPTION_CODES: c_uint = 0x8000_0000;
 const ARM_THREAD_STATE64: c_int = 6;
@@ -202,6 +206,21 @@ pub fn run(arguments: &[String]) -> Result<u8, String> {
         }
         return Err("Usage: crashwrangler run <program> [arguments...]".to_owned());
     }
+    let timeout = match env::var("CW_TIMEOUT") {
+        Ok(value) => {
+            let seconds = value
+                .parse::<u64>()
+                .map_err(|_| "CW_TIMEOUT must be a positive number of seconds")?;
+            if seconds == 0 {
+                return Err("CW_TIMEOUT must be a positive number of seconds".to_owned());
+            }
+            Some(Duration::from_secs(seconds))
+        }
+        Err(env::VarError::NotPresent) => None,
+        Err(env::VarError::NotUnicode(_)) => {
+            return Err("CW_TIMEOUT must be valid UTF-8".to_owned());
+        }
+    };
 
     let (program, argv, envp) = spawn_strings(arguments)?;
     let mut attributes: *mut c_void = ptr::null_mut();
@@ -244,6 +263,17 @@ pub fn run(arguments: &[String]) -> Result<u8, String> {
             .map_err(|error| format!("writing CW_PID_FILE: {error}"))?;
     }
 
+    let timeout_worker = timeout.map(|duration| {
+        let (cancel, receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            if receiver.recv_timeout(duration).is_err() && !lock_path().exists() {
+                debug(format_args!("timeout expired; killing pid {pid}"));
+                unsafe { kill(pid, SIGKILL) };
+            }
+        });
+        (cancel, worker)
+    });
+
     std::thread::spawn(move || unsafe {
         debug(format_args!(
             "exception server waiting on {}",
@@ -255,7 +285,12 @@ pub fn run(arguments: &[String]) -> Result<u8, String> {
     });
 
     let mut status = 0;
-    if unsafe { waitpid(pid, &mut status, 0) } < 0 {
+    let wait_result = unsafe { waitpid(pid, &mut status, 0) };
+    if let Some((cancel, worker)) = timeout_worker {
+        let _ = cancel.send(());
+        let _ = worker.join();
+    }
+    if wait_result < 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
     debug(format_args!("waitpid status=0x{status:08x}"));
@@ -387,17 +422,18 @@ fn spawn_strings(arguments: &[String]) -> Result<SpawnData, String> {
     }
     let program = argument_storage[0].clone();
 
-    let mut environment: Vec<(String, String)> = env::vars().collect();
-    environment.retain(|(name, _)| !name.starts_with("CWE_"));
+    let mut environment: BTreeMap<String, String> = env::vars()
+        .filter(|(name, _)| !name.starts_with("CWE_"))
+        .collect();
     for (name, value) in env::vars().filter(|(name, _)| name.starts_with("CWE_")) {
-        environment.push((name[4..].to_owned(), value));
+        environment.insert(name[4..].to_owned(), value);
     }
     if env::var_os("CW_USE_GMAL").is_some() {
-        environment.push(("MALLOC_FILL_SPACE".to_owned(), "1".to_owned()));
-        environment.push((
+        environment.insert("MALLOC_FILL_SPACE".to_owned(), "1".to_owned());
+        environment.insert(
             "DYLD_INSERT_LIBRARIES".to_owned(),
             "/usr/lib/libgmalloc.dylib".to_owned(),
-        ));
+        );
     }
     let mut environment_storage = Vec::with_capacity(environment.len());
     for (name, value) in environment {
@@ -534,23 +570,40 @@ unsafe extern "C" fn catch_mach_exception_raise_state_identity(
     }
 
     let forward = env::var_os("CW_FORWARD_CRASH_REPORTER").is_some();
-    if forward {
+    let no_kill = env::var_os("CW_NO_KILL_CHILD").is_some();
+    if forward || no_kill {
         let behavior = (EXCEPTION_STATE_IDENTITY as u32 | MACH_EXCEPTION_CODES) as c_int;
-        unsafe {
-            task_set_exception_ports(task, EXC_MASK_ALL, 0, behavior, ARM_THREAD_STATE64);
+        let result = unsafe {
+            task_set_exception_ports(task, EXC_MASK_ALL, 0, behavior, ARM_THREAD_STATE64)
+        };
+        debug(format_args!(
+            "clearing child exception ports returned {result}"
+        ));
+        if result != KERN_SUCCESS {
+            if let Some(runtime) = RUNTIME.get() {
+                if let Ok(mut outcome) = runtime.outcome.lock() {
+                    *outcome = Some(Err(format!(
+                        "task_set_exception_ports(clear for forwarding) failed with Mach error {result}"
+                    )));
+                }
+            }
         }
-    } else if env::var_os("CW_NO_KILL_CHILD").is_none() {
+    } else {
         let mut pid = 0;
         if unsafe { pid_for_task(task, &mut pid) } == KERN_SUCCESS && pid > 0 {
             unsafe { kill(pid, SIGKILL) };
         }
     }
 
-    unsafe {
-        let _ = mach_port_deallocate(mach_task_self_, task);
-        let _ = mach_port_deallocate(mach_task_self_, thread);
+    if forward || no_kill {
+        KERN_FAILURE
+    } else {
+        unsafe {
+            let _ = mach_port_deallocate(mach_task_self_, task);
+            let _ = mach_port_deallocate(mach_task_self_, thread);
+        }
+        KERN_SUCCESS
     }
-    if forward { KERN_FAILURE } else { KERN_SUCCESS }
 }
 
 fn capture_exception(
@@ -910,32 +963,41 @@ fn format_report(event: &CrashEvent, pid: c_int, state: &ArmThreadState64) -> St
 }
 
 fn create_lock() -> Result<(), String> {
-    let path = env::var_os("CW_LOCK_FILE").unwrap_or_else(|| "./cw.lck".into());
     OpenOptions::new()
         .create(true)
         .write(true)
         .custom_flags(O_NOFOLLOW)
         .mode(0o600)
-        .open(path)
+        .open(lock_path())
         .map(|_| ())
         .map_err(|error| format!("creating lock file: {error}"))
 }
 
 fn remove_lock() {
-    let path = env::var_os("CW_LOCK_FILE").unwrap_or_else(|| "./cw.lck".into());
-    match fs::remove_file(path) {
+    match fs::remove_file(lock_path()) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => eprintln!("removing lock file: {error}"),
     }
 }
 
+fn lock_path() -> PathBuf {
+    env::var_os("CW_LOCK_FILE")
+        .unwrap_or_else(|| "./cw.lck".into())
+        .into()
+}
+
 fn emit_crash(crash: &LiveCrash) -> Result<(), String> {
     let path = log_path()?;
     let header = live_header(crash);
+    let machine_readable = env::var_os("CW_MACHINE_READABLE").is_some();
+    let human = (!machine_readable).then(|| crash.event.human_description());
     if env::var_os("CW_QUIET").is_none() {
         println!("log name is: {}\n---", path.display());
         println!("{header}");
+        if let Some(human) = &human {
+            println!("{human}");
+        }
     }
     let mut file = OpenOptions::new()
         .create(true)
@@ -945,13 +1007,20 @@ fn emit_crash(crash: &LiveCrash) -> Result<(), String> {
         .mode(0o600)
         .open(&path)
         .map_err(|error| format!("opening {}: {error}", path.display()))?;
-    let current_case = current_case()?.unwrap_or_default();
-    let test_case = env::var("CW_TEST_CASE_PATH").unwrap_or(current_case);
-    let mut prologue = format!("{header}\nTest case was {test_case}\n");
-    if let Ok(info) = env::var("CW_LOG_INFO") {
-        prologue.push_str(&format!("LOG_INFO: {info}\n"));
+    let mut prologue = format!("{header}\n");
+    if !machine_readable {
+        let current_case = current_case()?.unwrap_or_default();
+        let test_case = env::var("CW_TEST_CASE_PATH").unwrap_or(current_case);
+        if let Some(human) = human {
+            prologue.push_str(&human);
+            prologue.push('\n');
+        }
+        prologue.push_str(&format!("Test case was {test_case}\n"));
+        if let Ok(info) = env::var("CW_LOG_INFO") {
+            prologue.push_str(&format!("LOG_INFO: {info}\n"));
+        }
+        prologue.push_str("\n\n");
     }
-    prologue.push_str("\n\n");
     file.write_all(prologue.as_bytes())
         .and_then(|_| file.write_all(crash.report.as_bytes()))
         .map_err(|error| format!("writing {}: {error}", path.display()))
@@ -965,7 +1034,7 @@ fn live_header(crash: &LiveCrash) -> String {
         if crash.event.exploitability == Exploitability::Yes {
             "yes"
         } else {
-            " no"
+            "no"
         },
         crash.event.instruction.replace(':', " "),
         crash.event.instruction_address,

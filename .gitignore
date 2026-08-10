@@ -39,6 +39,7 @@ cw.lck
 /variable_length_stack_buffer
 /exploitable_jit
 /null_objc_msgSend
+/env_probe
 
 ### macOS ###
 # General

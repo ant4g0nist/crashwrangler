@@ -1,4 +1,4 @@
-.PHONY: all check clean tests unit
+.PHONY: all check check-system-integration clean tests unit
 
 all: exc_handler
 
@@ -6,7 +6,7 @@ SDK=macosx
 CC=xcrun --sdk $(SDK) cc
 CXX=xcrun --sdk $(SDK) c++
 
-TESTS = abort badsyscall crashread crashwrite crashexec divzero illegalinstruction nocrash  nullderef spin recursion stack_buffer_overflow malloc_abort fortify_source_overflow cfrelease_null uninit_heap recursive_write bad_func_call cpp_crash objc_crash invalid_address_64 read_and_write_instruction illegal_libdispatch fastMalloc variable_length_stack_buffer exploitable_jit null_objc_msgSend
+TESTS = abort badsyscall crashread crashwrite crashexec divzero illegalinstruction nocrash  nullderef spin recursion stack_buffer_overflow malloc_abort fortify_source_overflow cfrelease_null uninit_heap recursive_write bad_func_call cpp_crash objc_crash invalid_address_64 read_and_write_instruction illegal_libdispatch fastMalloc variable_length_stack_buffer exploitable_jit null_objc_msgSend env_probe
 
 TEST_DIR = tests_src
 
@@ -25,6 +25,9 @@ unit:
 
 check: all tests
 	cargo test
+
+check-system-integration: all tests
+	sh tests/system_integration.sh
 
 abort: $(TEST_DIR)/abort.c
 	$(CC) $(TEST_FLAGS) -o abort $(TEST_DIR)/abort.c
@@ -80,6 +83,8 @@ exploitable_jit:  $(TEST_DIR)/exploitable_jit.c
 	$(CC) $(TEST_FLAGS) -o exploitable_jit  $(TEST_DIR)/exploitable_jit.c
 null_objc_msgSend: $(TEST_DIR)/null_objc_msgSend.c
 	$(CC) $(TEST_FLAGS) -o null_objc_msgSend  $(TEST_DIR)/null_objc_msgSend.c
+env_probe: tests/helpers/env_probe.c
+	$(CC) $(TEST_FLAGS) -o env_probe tests/helpers/env_probe.c
 
 clean:
 	cargo clean

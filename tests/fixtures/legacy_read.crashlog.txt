@@ -1,0 +1,17 @@
+exception=EXC_BAD_ACCESS:signal=11:is_exploitable= no:instruction_disassembly=.long 0xf9400020:instruction_address=0x0000000100001000:access_type=read:access_address=0x0000000041414141:
+Test case was legacy-read
+
+Process:         legacy_read [4243]
+Path:            /tmp/legacy_read
+Code Type:       ARM-64 (Native)
+OS Version:      macOS 15.0 (24A335)
+
+Exception Type:  EXC_BAD_ACCESS (SIGSEGV)
+Exception Codes: KERN_INVALID_ADDRESS at 0x0000000041414141
+
+Thread 0 Crashed:
+0   legacy_read 0x0000000100001000 read_fixture + 20
+
+Thread 0 crashed with ARM Thread State (64-bit):
+    fp: 0x000000016fdff000    sp: 0x000000016fdfeff0    pc: 0x0000000100001000
+
