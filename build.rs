@@ -18,21 +18,29 @@ fn main() {
         panic!("CrashWrangler v3 supports Apple Silicon (arm64) only");
     }
 
-    let sdk = Command::new("xcrun")
-        .args(["--sdk", "macosx", "--show-sdk-path"])
-        .output()
-        .unwrap_or_else(|error| panic!("could not locate the macOS SDK: {error}"));
-    assert!(
-        sdk.status.success(),
-        "xcrun could not locate the macOS SDK: {}",
-        String::from_utf8_lossy(&sdk.stderr).trim()
-    );
-    let definitions = PathBuf::from(
-        String::from_utf8(sdk.stdout)
-            .expect("the macOS SDK path is UTF-8")
-            .trim(),
-    )
-    .join("usr/include/mach/mach_exc.defs");
+    // Honor an explicit SDKROOT so the SDK can be pinned for reproducible
+    // builds, or resolved on systems where xcrun is not available. The xcrun
+    // lookup stays as the fallback when SDKROOT is not set.
+    let sdk_path = match env::var("SDKROOT") {
+        Ok(path) if !path.is_empty() => PathBuf::from(path),
+        _ => {
+            let sdk = Command::new("xcrun")
+                .args(["--sdk", "macosx", "--show-sdk-path"])
+                .output()
+                .unwrap_or_else(|error| panic!("could not locate the macOS SDK: {error}"));
+            assert!(
+                sdk.status.success(),
+                "xcrun could not locate the macOS SDK: {}",
+                String::from_utf8_lossy(&sdk.stderr).trim()
+            );
+            PathBuf::from(
+                String::from_utf8(sdk.stdout)
+                    .expect("the macOS SDK path is UTF-8")
+                    .trim(),
+            )
+        }
+    };
+    let definitions = sdk_path.join("usr/include/mach/mach_exc.defs");
     assert!(
         definitions.is_file(),
         "the macOS SDK does not contain {}",
